@@ -1,6 +1,8 @@
 # WDK on GitHub-hosted runners — empirical findings + copy-paste recipe
 
-Status: **verified green** on `windows-latest` (scratch repo run: <https://github.com/blook-project/ci-probe/actions/runs/39478848311>).
+Status: **verified green** on `windows-latest` (scratch repo run `39478848311`; durable evidence in
+[`evidence/20261020-wdk-probe/`](evidence/20261020-wdk-probe/README.md), workflow in
+[`ci-probe.yml`](ci-probe.yml); the scratch repo `blook-project/ci-probe` is deleted after the probe).
 Both recipes below were executed end-to-end in that run and produced `probedrv.sys`.
 Owners: `ci`. Applies to every repo that builds a kernel driver: `blook-kchannel`, `blook-kdu`, `blook-drv`, `blook-drv-lite`.
 

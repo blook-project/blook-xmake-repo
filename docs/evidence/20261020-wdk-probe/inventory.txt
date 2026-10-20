@@ -1,0 +1,27 @@
+download_s=6.7 size_mb=106
+extract_s=1.6
+WDK_ROOT=D:\a\_temp\wdk\c exists=True
+km lib x64=82 files
+kmdf lib dirs=x64
+bin dir=True
+preinstalled km libs: 0
+build_s=17
+PRODUCED: probedrv.sys size=5120
+installer_exit=0 install_s=260.6
+post-install km dirs: C:\Program Files (x86)\Windows Kits\10\Lib\10.0.26100.0
+WDKContentRoot=[]
+Vsix: C:\Program Files (x86)\Windows Kits\10\Vsix\VS2022\10.0.26100.0\amd64\WDK.vsix,C:\Program Files (x86)\Windows Kits\10\Vsix\VS2022\10.0.26100.0\arm64\WDK.vsix
+build_s=17.6
+PRODUCED: probedrv.sys size=4608
+OS: Microsoft Windows Server 2025 Datacenter / 10.0.26100 / build 26100
+ImageOS=win25-vs2026 ImageVersion=20261018.275.1
+WDKContentRoot=[] WindowsSdkDir=[]
+CORES=4
+RAM_GB=16.0
+== KITS_ROOT C:\Program Files (x86)\Windows Kits\10 exists=True
+Lib: 10.0.26100.0
+Include: 10.0.26100.0
+km lib [10.0.26100.0] = False
+== KITS_ROOT C:\Program Files (x86)\Windows Kits\11 exists=False
+catalogVersion: 18.11.0
+VS dirs: 18

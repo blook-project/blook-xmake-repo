@@ -212,14 +212,19 @@ Notes:
 
 The flow above was validated end-to-end before any product release existed, using a scratch release
 in `blook-project/ci-probe` (a fixture package `blook-fixture` 9.9.9 pointing at a real GitHub
-Release asset):
+Release asset) plus the registry self-test in CI. Full details:
+[`evidence/20261020-registry-validation/`](evidence/20261020-registry-validation/README.md).
 
 1. `gh release create v9.9.9 -R blook-project/ci-probe blook-fixture-9.9.9-windows-x64.zip blook-fixture-9.9.9-windows-x64.zip.sha256`
-2. `pwsh scripts/publish-registry.ps1 -Package blook-fixture -Version 9.9.9 -Repo blook-project/ci-probe -ManifestFile <fixture xmake-package/xmake.lua>` →
-   registry clone got `packages/b/blook-fixture/versions.txt` with the right sha256, commit created,
-   throwaway consumer project installed the package from the GitHub Release URL (`xmake f` green).
-3. When an owner publishes `blook-kchannel v1.0.0`, the same command with the real repo replaces the
-   fixture and the registry then serves the real package.
+2. `pwsh scripts/publish-registry.ps1 -Package blook-fixture -Version 9.9.9 -Repo blook-project/ci-probe -ManifestFile <fixture xmake-package/xmake.lua> -NoPush`
+   → cloned the real registry, created `packages/b/blook-fixture/versions.txt` with the right sha256,
+   committed `registry: publish blook-fixture 9.9.9`, and **installed the package from the GitHub
+   Release URL in the verification project** (green).
+3. `.github/workflows/validate.yml` run `39480017124` is green: manifest lint/parse for all five
+   package manifests plus an e2e install of `blook-registry-selftest 0.1.0` from the real
+   `selftest-v0.1.0` release asset, including building a consumer against it.
+4. When an owner publishes `blook-kchannel v1.0.0`, the same command with the real repo replaces the
+   fixture and the registry then serves the real package (`versions.txt` line only, no script change).
 
 The registry self-test in CI (`tests/fixtures/`, `.github/workflows/validate.yml`) keeps proving the
 asset-URL + sha256 + on_install path on every push, without any product release involved.
