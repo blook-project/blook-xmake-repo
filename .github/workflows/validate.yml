@@ -1,0 +1,71 @@
+name: validate
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  manifests:
+    name: manifests + sha256 lint
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup xmake
+        uses: xmake-io/github-action-setup-xmake@v1
+
+      - name: Validate registry structure and parse every manifest with xmake
+        shell: pwsh
+        run: ./scripts/validate-registry.ps1 -WithXmake
+
+      - name: Check published release assets (public repo only)
+        if: github.event.repository.visibility == 'public' || github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: ./scripts/validate-registry.ps1 -CheckAssets
+
+  selftest-install:
+    name: e2e install from GitHub Release asset
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup xmake
+        uses: xmake-io/github-action-setup-xmake@v1
+
+      - name: Prepare throwaway registry repo from tests/fixtures/selftest-repo
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repo = Join-Path $env:RUNNER_TEMP 'blook-selftest-repo'
+          New-Item -ItemType Directory -Force $repo | Out-Null
+          Copy-Item tests/fixtures/selftest-repo/* $repo -Recurse
+          git init -q -b main $repo
+          git -C $repo add -A
+          git -C $repo -c user.name='ci' -c user.email='ci@blook-project.invalid' commit -qm 'selftest registry'
+          "SELFTEST_REPO_URL=file:///" + ($repo -replace '\\', '/') >> $env:GITHUB_ENV
+
+      - name: Build + run consumer against blook-registry-selftest 0.1.0
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location tests/fixtures/consumer
+          try {
+            # real HTTPS download from https://github.com/blook-project/blook-xmake-repo/releases/...,
+            # sha256 verified against tests/fixtures/selftest-repo/.../versions.txt
+            xmake f -c -y -m release
+            if ($LASTEXITCODE -ne 0) { throw 'xmake configure/install failed' }
+            xmake -y
+            if ($LASTEXITCODE -ne 0) { throw 'xmake build failed' }
+            xmake run consumer
+            if ($LASTEXITCODE -ne 0) { throw 'selftest consumer returned non-zero' }
+          } finally {
+            Pop-Location
+          }
+
+      - name: Assert manifest/versions stayed consistent
+        shell: pwsh
+        run: ./scripts/validate-registry.ps1 -WithXmake

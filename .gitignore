@@ -1,0 +1,14 @@
+# xmake / build output
+build/
+.xmake/
+*.sys
+*.pdb
+*.ilk
+*.obj
+*.o
+*.lib.bak
+# local clones used for testing
+/registry-clone/
+# OS noise
+Thumbs.db
+Desktop.ini

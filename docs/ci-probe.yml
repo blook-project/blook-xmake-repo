@@ -1,0 +1,143 @@
+name: wdk-probe
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    name: WDK/SDK inventory
+    runs-on: windows-latest
+    steps:
+      - name: Runner + WDK inventory
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $os = Get-CimInstance Win32_OperatingSystem
+          "OS: $($os.Caption) / $($os.Version) / build $($os.BuildNumber)"
+          "ImageOS=$env:ImageOS ImageVersion=$env:ImageVersion"
+          "WDKContentRoot=[$env:WDKContentRoot] WindowsSdkDir=[$env:WindowsSdkDir]"
+          "CORES=$env:NUMBER_OF_PROCESSORS"
+          $cs = Get-CimInstance Win32_ComputerSystem
+          "RAM_GB={0:N1}" -f ($cs.TotalPhysicalMemory/1GB)
+          (Get-PSDrive C | Select-Object @{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}} | Out-String).Trim()
+
+          foreach ($r in @('C:\Program Files (x86)\Windows Kits\10', 'C:\Program Files (x86)\Windows Kits\11')) {
+            "== KITS_ROOT $r exists=$(Test-Path -LiteralPath $r)"
+            if (Test-Path -LiteralPath $r) {
+              "   Lib: " + ((Get-ChildItem -LiteralPath "$r\Lib" -Directory -EA 0).Name -join ', ')
+              "   Include: " + ((Get-ChildItem -LiteralPath "$r\Include" -Directory -EA 0).Name -join ', ')
+              foreach ($d in (Get-ChildItem -LiteralPath "$r\Lib" -Directory -EA 0)) {
+                "   km lib [$($d.Name)] = $(Test-Path -LiteralPath "$($d.FullName)\km")"
+              }
+            }
+          }
+
+          "== Visual Studio =="
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (Test-Path $vswhere) {
+            "installPath: " + (& $vswhere -latest -products * -property installationPath)
+            "catalogVersion: " + (& $vswhere -latest -products * -property catalog_productDisplayVersion)
+          } else { "vswhere MISSING" }
+          if (Test-Path 'C:\Program Files\Microsoft Visual Studio') {
+            "VS dirs: " + ((Get-ChildItem 'C:\Program Files\Microsoft Visual Studio' -Directory -EA 0).Name -join ', ')
+          }
+          "== tools =="
+          foreach ($tool in @('winget', 'choco', 'tar', 'nuget', 'Expand-Archive')) {
+            $c = Get-Command $tool -EA 0
+            if ($c) { "$tool => $($c.Source)" } else { "$tool => MISSING" }
+          }
+          $global:LASTEXITCODE = 0
+          exit 0
+
+  wdk-nuget-build:
+    name: WDK via NuGet content (fast, no admin)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup xmake
+        uses: xmake-io/github-action-setup-xmake@v1
+      - name: Download + extract Microsoft.Windows.WDK.x64 NuGet
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ver = '10.0.26100.6584'
+          $url = "https://api.nuget.org/v3-flatcontainer/microsoft.windows.wdk.x64/$ver/microsoft.windows.wdk.x64.$ver.nupkg"
+          New-Item -ItemType Directory -Force -Path $env:RUNNER_TEMP\wdk | Out-Null
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          Invoke-WebRequest -Uri $url -OutFile $env:RUNNER_TEMP\wdk\wdk.nupkg -UseBasicParsing
+          "download_s=$([math]::Round($sw.Elapsed.TotalSeconds,1)) size_mb=$([math]::Round((Get-Item $env:RUNNER_TEMP\wdk\wdk.nupkg).Length/1MB))"
+          $sw.Restart()
+          & tar.exe -xf $env:RUNNER_TEMP\wdk\wdk.nupkg -C $env:RUNNER_TEMP\wdk
+          "extract_s=$([math]::Round($sw.Elapsed.TotalSeconds,1))"
+          $root = "$env:RUNNER_TEMP\wdk\c"
+          "WDK_ROOT=$root exists=$(Test-Path "$root\Include\10.0.26100.0\km\ntddk.h")"
+          "km lib x64=$((Get-ChildItem "$root\Lib\10.0.26100.0\km\x64" -File -EA 0 | Measure-Object).Count) files"
+          "kmdf lib dirs=$((Get-ChildItem "$root\Lib\wdf\kmdf" -Directory -EA 0).Name -join ',')"
+          "bin dir=$((Test-Path "$root\bin"))"
+          # sanity: no km libs preinstalled
+          "preinstalled km libs: " + ((@(Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Lib' -Directory -EA 0 | Where-Object { Test-Path "$($_.FullName)\km" })).Count)
+      - name: Build minimal WDM driver (nuget WDK)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = "$env:RUNNER_TEMP\wdk\c"
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          Push-Location probe
+          xmake f -c -y -m release --wdk="$root"
+          xmake -y
+          Pop-Location
+          "build_s=$([math]::Round($sw.Elapsed.TotalSeconds,1))"
+          $sys = Get-ChildItem probe\build -Recurse -Filter *.sys -EA 0
+          if (-not $sys) { Write-Host "::error::no .sys produced"; exit 1 }
+          $sys | ForEach-Object { "PRODUCED: $($_.Name) size=$($_.Length)" }
+          "signature (dumpbin absent; size check only)"
+      - name: Upload sys
+        uses: actions/upload-artifact@v4
+        with:
+          name: probedrv-nuget-wdk
+          path: probe/build/windows/x64/release/probedrv.sys
+
+  wdk-installer-build:
+    name: WDK via official wdksetup.exe (fallback, admin)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup xmake
+        uses: xmake-io/github-action-setup-xmake@v1
+      - name: Download + silent install WDK
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          $setup = "$env:RUNNER_TEMP\wdksetup.exe"
+          try {
+            Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/?linkid=2272234' -OutFile $setup -UseBasicParsing -MaximumRedirection 5
+          } catch { "::warning::download failed: $_" }
+          if (Test-Path $setup) {
+            "downloaded size_mb=$([math]::Round((Get-Item $setup).Length/1MB)) after $([math]::Round($sw.Elapsed.TotalSeconds,1))s"
+            $p = Start-Process -FilePath $setup -ArgumentList '/quiet','/norestart','/features','+' -Wait -PassThru -NoNewWindow
+            "installer_exit=$($p.ExitCode) install_s=$([math]::Round($sw.Elapsed.TotalSeconds,1))"
+          }
+          $km = @(Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Lib' -Directory -EA 0 | Where-Object { Test-Path "$($_.FullName)\km" })
+          "post-install km dirs: " + ($km.FullName -join ',')
+          "WDKContentRoot=[$env:WDKContentRoot]"
+          "Vsix: " + ((Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Vsix' -Recurse -Filter *.vsix -EA 0 | Select-Object -First 3).FullName -join ',')
+          if ($km.Count -eq 0) { Write-Host '::error::WDK installer did not produce km libs'; exit 1 }
+          $global:LASTEXITCODE = 0
+      - name: Build minimal WDM driver (installed WDK)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          Push-Location probe
+          xmake f -c -y -m release --wdk="C:\Program Files (x86)\Windows Kits\10"
+          xmake -y
+          Pop-Location
+          "build_s=$([math]::Round($sw.Elapsed.TotalSeconds,1))"
+          $sys = Get-ChildItem probe\build -Recurse -Filter *.sys -EA 0
+          if (-not $sys) { Write-Host "::error::no .sys produced"; exit 1 }
+          $sys | ForEach-Object { "PRODUCED: $($_.Name) size=$($_.Length)" }
