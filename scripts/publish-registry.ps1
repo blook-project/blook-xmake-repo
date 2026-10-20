@@ -207,7 +207,27 @@ try {
         [System.IO.File]::WriteAllText($versionsPath, $newVersionsText, (New-Object System.Text.UTF8Encoding($false)))
     }
 
-    # --- 5. optional install verification against the local clone ------------
+    # --- 5. stage + commit (verification runs against the committed state) ----
+    & git -C $RegistryDir add -A
+    $status = (& git -C $RegistryDir status --porcelain 2>&1 | Out-String).Trim()
+    if ($status -eq '') {
+        Step 'registry: no changes (version already published with this sha256)'
+        if ($DryRun) { Write-Host 'DRY RUN: nothing to push' }
+        exit 0
+    }
+    $diff = (& git -C $RegistryDir diff --cached 2>&1 | Out-String)
+    if ($DryRun) {
+        Step 'DRY RUN: would commit these changes:'
+        Write-Host $diff
+        & git -C $RegistryDir reset --hard --quiet
+        exit 0
+    }
+    $commitMessage = "registry: publish $Package $Version"
+    & git -C $RegistryDir -c user.name='MicroBlock' -c user.email='66859419+std-microblock@users.noreply.github.com' commit -m $commitMessage --quiet
+    if ($LASTEXITCODE -ne 0) { Fail 'git commit failed' }
+    $commitSha = (& git -C $RegistryDir rev-parse --short HEAD | Out-String).Trim()
+
+    # --- 6. optional install verification (rolls the commit back when red) ----
     if (-not $NoVerify) {
         Step 'verify: installing the published version from the local registry clone'
         $verifyDir = Join-Path $tmpRoot 'verify'
@@ -228,32 +248,18 @@ target("verify")
         try {
             & $Xmake f -c -y -m release 2>&1 | Out-Null
             $cfgCode = $LASTEXITCODE
-            if ($cfgCode -ne 0) { Fail "install verification failed: xmake could not install $Package $Version (wrong asset name/sha256 or unreadable manifest?)" }
         } finally {
             Pop-Location
+        }
+        if ($cfgCode -ne 0) {
+            & git -C $RegistryDir reset --hard HEAD~1 --quiet 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0) { Write-Host 'WARN: could not roll back the verification commit' -ForegroundColor Yellow }
+            Fail "install verification failed: xmake could not install $Package $Version (asset name/sha256 mismatch, unreadable manifest, or xmake error)"
         }
         Write-Host "   verified: $Package $Version installs from $expectedUrlTemplate"
     }
 
-    # --- 6. commit + push -----------------------------------------------------
-    & git -C $RegistryDir add -A
-    $status = (& git -C $RegistryDir status --porcelain 2>&1 | Out-String).Trim()
-    if ($status -eq '') {
-        Step 'registry: no changes (version already published with this sha256)'
-        if ($DryRun) { Write-Host 'DRY RUN: nothing to push' }
-        exit 0
-    }
-    $diff = (& git -C $RegistryDir diff --cached 2>&1 | Out-String)
-    if ($DryRun) {
-        Step 'DRY RUN: would commit these changes:'
-        Write-Host $diff
-        & git -C $RegistryDir reset --hard --quiet
-        exit 0
-    }
-    $commitMessage = "registry: publish $Package $Version"
-    & git -C $RegistryDir -c user.name='MicroBlock' -c user.email='66859419+std-microblock@users.noreply.github.com' commit -m $commitMessage --quiet
-    if ($LASTEXITCODE -ne 0) { Fail 'git commit failed' }
-    $commitSha = (& git -C $RegistryDir rev-parse --short HEAD | Out-String).Trim()
+    # --- 7. push --------------------------------------------------------------
     if ($NoPush) {
         Step "registry: committed $commitSha locally (-NoPush)"
     } else {
