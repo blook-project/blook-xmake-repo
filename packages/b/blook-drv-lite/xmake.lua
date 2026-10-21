@@ -37,9 +37,14 @@ package("blook-drv-lite")
                 package:add("linkdirs", path.join(installdir, subdir))
             end
         end
-        for _, subdir in ipairs({ "bin/x64", "bin" }) do
+        -- ship a default link for consumers when the SDK lib is present
+        if os.isfile(path.join(installdir, "lib", "x64", "drvlite-sdk.lib")) or
+           os.isfile(path.join(installdir, "lib", "drvlite-sdk.lib")) then
+            package:add("links", "drvlite-sdk")
+        end        for _, subdir in ipairs({ "bin/x64", "bin" }) do
             if os.isdir(path.join(installdir, subdir)) then
                 package:add("bindirs", path.join(installdir, subdir))
             end
         end
     end)
+
