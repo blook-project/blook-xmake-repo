@@ -1,0 +1,46 @@
+{
+  "schema": "blook-project.ci-kernel-load.v1",
+  "date": "2026-10-21",
+  "conclusion": "GitHub-hosted windows-latest CAN load a kernel driver with real SPC SHA-1 signing (no test-signing reboot needed); SHA-256 SPC signing is broken.",
+  "runner": {
+    "image": "windows-2025-vs2026",
+    "os": "Microsoft Windows Server 2025 Datacenter 10.0.26100 build 26100",
+    "testsigning": "Yes (image default)",
+    "secureboot": false,
+    "admin": true
+  },
+  "signing_recipe": {
+    "signer": "signer/spcsign/spcsign.exe sign --sha1 --cert XINDA --tsa-time 2013-01-01T00:00:00Z --chain verisign-cscs-2010.cer --chain verisign-g5-mcvr.cer <file>",
+    "trust_imports_on_runner": [
+      "certutil -addstore -f root signer/tsa/tsa-root.cer",
+      "certutil -addstore -f CA signer/certs/verisign-cscs-2010.cer",
+      "certutil -addstore -f CA signer/certs/verisign-g5-mcvr.cer",
+      "certutil -addstore -f TrustedPublisher <XINDA leaf thumbprint> (after Import-PfxCertificate)"
+    ],
+    "verify": "signtool verify /kp <file> -> pass (0x80096005 before the TSA root is trusted)",
+    "sha256": "spcsign SHA-256 path produces TRUST_E_BAD_DIGEST (0x80096010) - use --sha1 only"
+  },
+  "evidence": {
+    "independent_probe": {
+      "repo": "blook-project/driver-load-probe (scratch, archived after use)",
+      "minimal_driver_sha256": "B054B875F0E1F12DB9F8BD305EB6BE2D973FF4AA15DF6EA59564E7B52491F616",
+      "verify_kp": "success",
+      "sc_start": "exit 0 in 0.1 s",
+      "state": "STATE 4 RUNNING",
+      "notes": "A full-featured probe driver (device + IOCTL) hung the runner VM at sc start; minimal DriverEntry-only driver is safe. Always guard sc start with a process timeout."
+    },
+    "drv_lite": {
+      "run": "https://github.com/blook-project/blook-drv-lite/actions/runs/39593960380",
+      "commit": "19a37b8",
+      "job": "kernel-load-smoke",
+      "result": "green: SPC SHA-1 + trust imports, /kp verified, sc start STATE 4 RUNNING, kernel read 4d 5a verified"
+    },
+    "kchannel": {
+      "run": "https://github.com/blook-project/blook-kchannel/actions/runs/39594663136",
+      "commit": "75108b8",
+      "job": "kernel-smoke (real load, SPC-signed)",
+      "result": "driver reached STATE 4 RUNNING on the hosted runner; job failed only because kchannel-ctl refuses to run outside a bvmenv guest (host-safety guard) - allow it when GITHUB_ACTIONS=true"
+    }
+  },
+  "policy": "blook-drv hypervisor remains VM-only (needs VT-x/nested virt); user-mode kernel-load smoke tests are CI-viable."
+}
