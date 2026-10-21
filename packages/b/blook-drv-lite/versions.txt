@@ -1,1 +1,2 @@
 # <version> <sha256>    # one published version per line; updated by scripts/publish-registry.ps1
+1.0.0 d7dc1968e398eae475602adfd971735c6d323a493b2e5ab62b61895dbaaaf023
