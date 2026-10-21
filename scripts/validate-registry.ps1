@@ -138,7 +138,7 @@ try {
             }
             $seenVersions[$ver] = $sha
             $versionEntries += [pscustomobject]@{ Version = $ver; Sha = $sha }
-            if ($prevVersion -and ([string]::CompareOrdinal($prevVersion, $ver) -gt 0)) {
+            $prevKey = if ($prevVersion) { ($prevVersion -split '[.\-+]') | ForEach-Object { $_ } } else { @() }; $curKey = ($ver -split '[.\-+]'); $ordLe = $false; if ($prevVersion) { $maxN = [Math]::Max($prevKey.Count, $curKey.Count); for ($k = 0; $k -lt $maxN; $k++) { $pv = if ($k -lt $prevKey.Count) { $prevKey[$k] } else { '0' }; $cv = if ($k -lt $curKey.Count) { $curKey[$k] } else { '0' }; $pn = 0; $cn = 0; $pOk = [int]::TryParse($pv, [ref]$pn); $cOk = [int]::TryParse($cv, [ref]$cn); if ($pOk -and $cOk -and $pn -ne $cn) { $ordLe = $pn -gt $cn; break }; if (-not ($pOk -and $cOk) -and [string]::CompareOrdinal($pv, $cv) -ne 0) { $ordLe = ([string]::CompareOrdinal($pv, $cv) -gt 0); break } } }; if ($prevVersion -and $ordLe) {
                 Warn "$name versions.txt: versions should be sorted ascending ('$prevVersion' before '$ver')"
             }
             $prevVersion = $ver
@@ -232,4 +232,5 @@ if ($errors.Count -gt 0) {
 }
 Write-Host '== OK: registry manifests are valid'
 exit 0
+
 
