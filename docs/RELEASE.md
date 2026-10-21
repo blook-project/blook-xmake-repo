@@ -197,6 +197,27 @@ Notes:
 - Keep `-NoVerify` in CI (the runner can't reach a private registry after the project flips private
   without the same token; the local run covers verification).
 
+## 4b. Troubleshooting: local xmake downloads behind a system proxy
+
+xmake's bundled curl does **not** read Windows WinINET/system proxy settings (only HTTPS_PROXY/
+HTTP_PROXY environment variables). On a dev host with a local proxy (e.g. 127.0.0.1:7890), a
+registry publish verification or a plain xmake f may fail with:
+
+`
+curl: (28) Failed to connect to github.com port 443 ... Could not connect to server
+`
+
+Fix: export the proxy for xmake (and any child process):
+
+`powershell
+$env:HTTPS_PROXY = 'http://127.0.0.1:7890'
+$env:HTTP_PROXY  = 'http://127.0.0.1:7890'
+pwsh ./scripts/publish-registry.ps1 -Package blook-vmware-environment -Version 0.1.0
+`
+
+GitHub-hosted CI runners have direct network access, so workflows do not need this. The publish
+script's own gh/Invoke-WebRequest calls use WinINET and already work behind the proxy; only the
+embedded xmake download step needs the env vars.
 ## 5. Rules
 
 - **Version is immutable.** Never re-upload different bytes under an existing `vX.Y.Z` tag; publish a
@@ -228,3 +249,4 @@ Release asset) plus the registry self-test in CI. Full details:
 
 The registry self-test in CI (`tests/fixtures/`, `.github/workflows/validate.yml`) keeps proving the
 asset-URL + sha256 + on_install path on every push, without any product release involved.
+
