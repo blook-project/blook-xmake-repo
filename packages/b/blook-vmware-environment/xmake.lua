@@ -1,3 +1,6 @@
+-- NOTE: bvmenv 0.1.9-0.1.11 had a stack-overflow recursion bug (exec/e2e/push could crash 0xC00000FD).
+--       0.1.11 is intentionally NOT published here; prefer >= 0.1.12 (0.1.14 recommended).
+--       0.1.12/0.1.13 tags were never released as GitHub Release assets.
 -- blook-project package: blook-vmware-environment
 -- bvmenv: VMware test-environment lifecycle CLI (fork / exec / push / state / e2e / reset)
 --
@@ -43,3 +46,4 @@ package("blook-vmware-environment")
             end
         end
     end)
+
